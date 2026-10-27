@@ -1,0 +1,91 @@
+@using AgentDemo.Web.Game
+
+<main class="screen screen-title-card">
+    <p class="eyebrow">Neon-noir arcade</p>
+    <h1 class="logo">
+        <span class="sr-only">GRID//ZERO</span>
+        <span class="logo-art" aria-hidden="true" data-text="GRID//ZERO">GRID//ZERO</span>
+    </h1>
+    <p class="tagline">VECTOR versus ORBIT. Three in a row, or watch your marks decay.</p>
+    <div class="btn-stack">
+        <button type="button" @ref="_play" class="btn btn-primary btn-big pulse-glow" @onclick="OnPlay">Press start</button>
+        @if (HasMatch)
+        {
+            <button type="button" class="btn btn-primary" @onclick="OnResumeMatch">Resume match</button>
+        }
+        <button type="button" class="btn btn-primary" @onclick="OnRun">OVERCLOCK · roguelite run</button>
+        @if (HasRun)
+        {
+            <button type="button" class="btn" @onclick="OnResumeRun">Resume run</button>
+        }
+        <button type="button" @ref="_settings" class="btn" @onclick="OnSettings">Settings</button>
+        <button type="button" @ref="_history" class="btn" @onclick="OnHistory">History</button>
+        <button type="button" @ref="_achievements" class="btn" @onclick="OnAchievements">Achievements (@Unlocked/@Total)</button>
+    </div>
+
+    @if (!string.IsNullOrEmpty(Notice))
+    {
+        <p class="hint" role="status">@Notice</p>
+    }
+
+    @if (Challenge is not null)
+    {
+        <section class="daily" aria-labelledby="daily-title">
+            <h2 id="daily-title" class="eyebrow">Daily challenge · @Challenge.Date.ToString("yyyy-MM-dd") UTC</h2>
+            <p class="daily-text">@Challenge.Description</p>
+            <p class="hint">
+                Streak: @Streak @(Streak == 1 ? "day" : "days") ·
+                @(DoneToday ? "Completed today ✓" : "Not completed yet")
+            </p>
+            <p class="hint">Undo and Hint make a match ineligible.</p>
+            <button type="button" class="btn" @onclick="OnChallenge">@(DoneToday ? "Play again" : "Play daily challenge")</button>
+        </section>
+    }
+</main>
+
+@code {
+    private ElementReference _play;
+    private ElementReference _settings;
+    private ElementReference _history;
+    private ElementReference _achievements;
+
+    [Parameter] public EventCallback OnPlay { get; set; }
+
+    [Parameter] public EventCallback OnRun { get; set; }
+
+    [Parameter] public EventCallback OnResumeRun { get; set; }
+
+    [Parameter] public bool HasRun { get; set; }
+
+    [Parameter] public bool HasMatch { get; set; }
+
+    [Parameter] public EventCallback OnResumeMatch { get; set; }
+
+    [Parameter] public string? Notice { get; set; }
+
+    [Parameter] public EventCallback OnSettings { get; set; }
+
+    [Parameter] public EventCallback OnHistory { get; set; }
+
+    [Parameter] public EventCallback OnAchievements { get; set; }
+
+    [Parameter] public EventCallback OnChallenge { get; set; }
+
+    [Parameter] public DailyChallenge? Challenge { get; set; }
+
+    [Parameter] public int Streak { get; set; }
+
+    [Parameter] public bool DoneToday { get; set; }
+
+    [Parameter] public int Unlocked { get; set; }
+
+    private static int Total => Enum.GetValues<Achievement>().Length;
+
+    public ValueTask FocusAsync(string which) => which switch
+    {
+        "settings" => _settings.FocusAsync(),
+        "history" => _history.FocusAsync(),
+        "achievements" => _achievements.FocusAsync(),
+        _ => _play.FocusAsync()
+    };
+}

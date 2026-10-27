@@ -1,0 +1,23 @@
+## .NET
+bin/
+obj/
+[Dd]ebug/
+[Rr]elease/
+x64/
+x86/
+.vs/
+.vscode/
+.idea/
+*.user
+*.suo
+*.userprefs
+*.rsuser
+*.log
+TestResults/
+*.trx
+coverage*.xml
+*.nupkg
+publish/
+.DS_Store
+Thumbs.db
+appsettings.*.local.json

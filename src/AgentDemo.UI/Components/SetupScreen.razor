@@ -1,0 +1,103 @@
+@using AgentDemo.Web.Game
+
+<main class="screen">
+    <h1 class="screen-title" tabindex="-1" @ref="_heading">Match setup</h1>
+
+    <div class="panel">
+        <fieldset class="field">
+            <legend>Opponent</legend>
+            <div class="chips">
+                <label class="chip"><input type="radio" name="opponent" checked="@(_draft.Opponent == Opponent.TwoPlayer)" @onchange="() => Update(_draft with { Opponent = Opponent.TwoPlayer })" /><span>Local 2P</span></label>
+                <label class="chip"><input type="radio" name="opponent" checked="@(_draft.Opponent == Opponent.Ai)" @onchange="() => Update(_draft with { Opponent = Opponent.Ai })" /><span>vs AI</span></label>
+            </div>
+        </fieldset>
+
+        @if (_draft.Opponent == Opponent.Ai)
+        {
+            <fieldset class="field" aria-describedby="difficulty-desc">
+                <legend>AI difficulty</legend>
+                <div class="chips">
+                    @foreach (var d in Enum.GetValues<Difficulty>())
+                    {
+                        var value = d;
+                        <label class="chip"><input type="radio" name="difficulty" checked="@(_draft.Difficulty == value)" @onchange="() => Update(_draft with { Difficulty = value })" /><span>@value</span></label>
+                    }
+                </div>
+                <p id="difficulty-desc" class="hint">@DifficultyText</p>
+            </fieldset>
+
+            <fieldset class="field" aria-describedby="side-desc">
+                <legend>Your side</legend>
+                <div class="chips">
+                    <label class="chip"><input type="radio" name="side" checked="@(_draft.HumanSide == Player.X)" @onchange="() => Update(_draft with { HumanSide = Player.X })" /><span>X (VECTOR)</span></label>
+                    <label class="chip"><input type="radio" name="side" checked="@(_draft.HumanSide == Player.O)" @onchange="() => Update(_draft with { HumanSide = Player.O })" /><span>O (ORBIT)</span></label>
+                </div>
+                <p id="side-desc" class="hint">X moves first in round 1. After that the loser starts, and a draw alternates the starter.</p>
+            </fieldset>
+        }
+
+        <fieldset class="field" aria-describedby="rules-desc">
+            <legend>Rules</legend>
+            <div class="chips">
+                <label class="chip"><input type="radio" name="rules" checked="@(_draft.Rules == RuleSet.Classic)" @onchange="() => Update(_draft with { Rules = RuleSet.Classic })" /><span>Classic</span></label>
+                <label class="chip"><input type="radio" name="rules" checked="@(_draft.Rules == RuleSet.Decay)" @onchange="() => Update(_draft with { Rules = RuleSet.Decay })" /><span>DECAY</span></label>
+            </div>
+            <p id="rules-desc" class="hint">
+                @if (_draft.Rules == RuleSet.Decay)
+                {
+                    <span>Each player keeps only 3 marks: your 4th placement erases your oldest one, and you cannot replay that cell.</span>
+                    <br />
+                    <span>The board never fills, so there are no draws. Flickering dashed marks are about to vanish.</span>
+                }
+                else
+                {
+                    <span>Line up three in a row to win the round.</span>
+                    <br />
+                    <span>A full board with no line is a draw.</span>
+                }
+            </p>
+        </fieldset>
+
+        <fieldset class="field">
+            <legend>Best of</legend>
+            <div class="chips">
+                @foreach (var n in new[] { 1, 3, 5 })
+                {
+                    var value = n;
+                    <label class="chip"><input type="radio" name="bestof" checked="@(_draft.BestOf == value)" @onchange="() => Update(_draft with { BestOf = value })" /><span>@value</span></label>
+                }
+            </div>
+            <p class="hint">First to @_draft.WinsNeeded round @(_draft.WinsNeeded == 1 ? "win" : "wins") takes the match. Draws score nothing and add a round.</p>
+        </fieldset>
+
+        <div class="btn-row">
+            <button type="button" class="btn btn-primary btn-big" @onclick="() => OnStart.InvokeAsync(_draft)">Start match</button>
+            <button type="button" class="btn" @onclick="OnBack">Back</button>
+        </div>
+    </div>
+</main>
+
+@code {
+    private ElementReference _heading;
+    private MatchSettings _draft = new();
+
+    [Parameter, EditorRequired] public MatchSettings Settings { get; set; } = new();
+
+    [Parameter] public EventCallback<MatchSettings> OnStart { get; set; }
+
+    [Parameter] public EventCallback OnBack { get; set; }
+
+    protected override void OnInitialized() => _draft = Settings;
+
+    public ValueTask FocusAsync() => _heading.FocusAsync();
+
+    private void Update(MatchSettings next) => _draft = next;
+
+    private string DifficultyText => _draft.Difficulty switch
+    {
+        Difficulty.Rookie => "Rookie plays random legal moves. Easy to beat.",
+        Difficulty.Tactician => "Tactician takes a win, blocks yours, then prefers the centre and corners. Beatable, but sensible.",
+        _ when _draft.Rules == RuleSet.Decay => "Oracle looks only 6 moves ahead under DECAY: very strong, but not perfect.",
+        _ => "Oracle searches every possible game: perfect play, so the best you can do is draw."
+    };
+}

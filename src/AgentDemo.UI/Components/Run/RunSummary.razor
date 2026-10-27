@@ -1,0 +1,46 @@
+@using AgentDemo.Web.Game.Run
+
+<section class="panel run-summary" aria-labelledby="summary-title">
+    <h2 id="summary-title">@(Stats.Cleared ? "✓ Act 1 cleared" : "✕ Run failed")</h2>
+    <p>@Stats.EncountersCleared of @Stats.EncountersTotal encounters cleared.</p>
+    <dl class="summary-grid">
+        <div><dt>Total Volts</dt><dd>@Stats.TotalVolts</dd></div>
+        <div><dt>Fires</dt><dd>@Stats.FiresCount</dd></div>
+        <div><dt>Best fire</dt><dd>@Stats.BestFire</dd></div>
+        <div><dt>Cred left</dt><dd>@Session.Cred</dd></div>
+    </dl>
+    @if (Stats.BestFire > 0)
+    {
+        <p class="breakdown"><strong>Best fire breakdown:</strong> @Stats.BestFireBreakdown</p>
+    }
+    <p class="breakdown"><strong>Modifiers:</strong> @(Session.Mods.Count == 0 ? "none" : string.Join(", ", Session.Mods.Select(m => m.Name)))</p>
+    <p class="breakdown"><strong>Tuned lanes:</strong> @TunedText</p>
+    <p class="hint">Seed @Session.Seed</p>
+    <div class="btn-row">
+        <button type="button" @ref="_primary" class="btn btn-primary btn-big" @onclick="OnNewRun">New run</button>
+        <button type="button" class="btn" @onclick="OnMenu">Menu</button>
+    </div>
+</section>
+
+@code {
+    private ElementReference _primary;
+
+    [Parameter, EditorRequired] public RunSession Session { get; set; } = default!;
+
+    [Parameter] public EventCallback OnNewRun { get; set; }
+
+    [Parameter] public EventCallback OnMenu { get; set; }
+
+    private RunStats Stats => RunStats.From(Session);
+
+    private string TunedText
+    {
+        get
+        {
+            var tuned = Enumerable.Range(0, Circuit.Lines.Length).Where(l => Session.Lanes[l] > 0).Select(l => $"{RunText.LaneName(l)} L{Session.Lanes[l]}").ToList();
+            return tuned.Count == 0 ? "none" : string.Join(", ", tuned);
+        }
+    }
+
+    public ValueTask FocusAsync() => _primary.FocusAsync();
+}

@@ -1,0 +1,94 @@
+@using AgentDemo.Web.Services
+
+<div class="overlay-backdrop" @onclick="OnClose"></div>
+<div class="dialog">
+    <section class="panel" role="dialog" aria-modal="true" aria-labelledby="settings-title">
+        <h2 id="settings-title" tabindex="-1" @ref="_heading">Settings</h2>
+
+        <fieldset class="field">
+            <legend>Theme</legend>
+            <div class="chips">
+                @foreach (var t in Choices)
+                {
+                    var value = t.Id;
+                    <label class="chip"><input type="radio" name="theme" checked="@(Settings.Theme == value)" @onchange="() => Change(Settings with { Theme = value })" /><span>@t.Label</span></label>
+                }
+            </div>
+        </fieldset>
+
+        <div class="field">
+            <label class="check"><input type="checkbox" checked="@Settings.SoundEnabled" @onchange="e => Change(Settings with { SoundEnabled = (bool)(e.Value ?? false) })" /> Sound effects</label>
+            <p class="hint">Muted by default. Sound can only start after you interact with the page.</p>
+        </div>
+
+        <div class="field">
+            <label class="check"><input type="checkbox" checked="@Settings.ReducedEffects" @onchange="e => Change(Settings with { ReducedEffects = (bool)(e.Value ?? false) })" /> Reduced effects</label>
+            <p class="hint">Stops all continuous animation and the background layers.</p>
+        </div>
+
+        <div class="field">
+            <label for="handle-input" class="eyebrow">Player handle</label>
+            <input id="handle-input" class="text-input" type="text" maxlength="@PlayerHandle.MaxLength" autocomplete="off" spellcheck="false"
+                   aria-describedby="handle-hint"
+                   value="@_handle"
+                   @onchange="HandleChanged"
+                   @onkeydown="OnInputKey" @onkeydown:stopPropagation="true" />
+            <p id="handle-hint" class="hint">Up to @PlayerHandle.MaxLength characters: letters, digits, space, - and _.</p>
+        </div>
+
+        <div class="btn-row">
+            @if (_confirmClear)
+            {
+                <button type="button" class="btn" @onclick="ClearAsync">Confirm: clear history</button>
+                <button type="button" class="btn" @onclick="() => _confirmClear = false">Keep history</button>
+            }
+            else
+            {
+                <button type="button" class="btn" @onclick="() => _confirmClear = true">Clear history</button>
+            }
+            <button type="button" class="btn btn-primary" @onclick="OnClose">Done</button>
+        </div>
+    </section>
+</div>
+
+@code {
+    private static readonly (string Id, string Label)[] Choices =
+    [
+        (Themes.NeonNoir, "Neon noir"),
+        (Themes.SolarFlare, "Solar flare"),
+        (Themes.Toxic, "Toxic"),
+        (Themes.HighContrast, "High contrast")
+    ];
+
+    private ElementReference _heading;
+    private string _handle = "";
+    private bool _confirmClear;
+
+    [Parameter, EditorRequired] public UserSettings Settings { get; set; } = new();
+
+    [Parameter] public EventCallback<UserSettings> OnChanged { get; set; }
+
+    [Parameter] public EventCallback OnClearHistory { get; set; }
+
+    [Parameter] public EventCallback OnClose { get; set; }
+
+    protected override void OnInitialized() => _handle = Settings.Handle;
+
+    public ValueTask FocusAsync() => _heading.FocusAsync();
+
+    private Task Change(UserSettings next) => OnChanged.InvokeAsync(next);
+
+    private async Task HandleChanged(ChangeEventArgs e)
+    {
+        _handle = PlayerHandle.Sanitize(e.Value?.ToString());
+        await OnChanged.InvokeAsync(Settings with { Handle = _handle });
+    }
+
+    private Task OnInputKey(KeyboardEventArgs e) => e.Key == "Escape" ? OnClose.InvokeAsync() : Task.CompletedTask;
+
+    private async Task ClearAsync()
+    {
+        _confirmClear = false;
+        await OnClearHistory.InvokeAsync();
+    }
+}

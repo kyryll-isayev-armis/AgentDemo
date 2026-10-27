@@ -1,0 +1,28 @@
+﻿<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <base href="/" />
+    <ResourcePreloader />
+    <link rel="stylesheet" href="@Assets["_content/AgentDemo.UI/app.css"]" />
+    <meta name="color-scheme" content="dark" />
+    <meta name="theme-color" content="#07060f" />
+    <link rel="stylesheet" href="@Assets["_content/AgentDemo.UI/themes.css"]" />
+    <link rel="stylesheet" href="@Assets["_content/AgentDemo.UI/base.css"]" />
+    <link rel="stylesheet" href="@Assets["_content/AgentDemo.UI/fx.css"]" />
+    <link rel="stylesheet" href="@Assets["_content/AgentDemo.UI/board.css"]" />
+    <link rel="stylesheet" href="@Assets["_content/AgentDemo.UI/run.css"]" />
+    <link rel="stylesheet" href="@Assets["AgentDemo.Web.styles.css"]" />
+    <ImportMap />
+    <HeadOutlet @rendermode="InteractiveServer" />
+</head>
+
+<body>
+    <Routes @rendermode="InteractiveServer" />
+    <ReconnectModal />
+    <script src="@Assets["_framework/blazor.web.js"]"></script>
+</body>
+
+</html>

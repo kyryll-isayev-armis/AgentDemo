@@ -1,0 +1,97 @@
+@using AgentDemo.Web.Game
+@using AgentDemo.Web.Game.Run
+
+<div class="stage">
+    <div class="board run-board" role="group" aria-label="OVERCLOCK circuit" aria-describedby="run-keys">
+        @for (var i = 0; i < Circuit.CellCount; i++)
+        {
+            var index = i;
+            var cell = Round.Circuit[index];
+            var playable = Interactive && cell.Playable;
+            var (icon, word) = RunText.Badge(cell);
+            var previewing = PreviewCell == index && playable;
+            <button type="button"
+                    @ref="_cells[index]"
+                    class="cell run-cell kind-@cell.Kind.ToString().ToLowerInvariant() @(cell.Marked ? "marked" : "") @(previewing ? "previewing" : "")"
+                    aria-label="@RunText.CellLabel(index, cell, previewing)"
+                    aria-disabled="@(playable ? null : "true")"
+                    @onclick="() => Play(index)"
+                    @onkeydown="e => OnKey(index, e)"
+                    @onmouseenter="() => Preview(index, playable)"
+                    @onmouseleave="() => Preview(null, false)"
+                    @onfocus="() => Preview(index, playable)"
+                    @onblur="() => Preview(null, false)">
+                <span class="cell-num" aria-hidden="true">@(index + 1)</span>
+                @if (cell.Marked)
+                {
+                    <Mark Side="Player.X" />
+                }
+                @if (word.Length > 0)
+                {
+                    <span class="cell-badge" aria-hidden="true"><span class="badge-icon">@icon</span> @word</span>
+                }
+            </button>
+        }
+        @if (Flash.Count > 0)
+        {
+            <svg class="run-beam" viewBox="0 0 316 316" aria-hidden="true" focusable="false">
+                @foreach (var lane in Flash)
+                {
+                    var (x1, y1, x2, y2) = BeamCoordinates(lane);
+                    <line class="beam-glow" x1="@x1" y1="@y1" x2="@x2" y2="@y2" />
+                    <line class="beam-core" x1="@x1" y1="@y1" x2="@x2" y2="@y2" />
+                }
+            </svg>
+        }
+    </div>
+</div>
+<p id="run-keys" class="hotkeys">Keys 1-9 place a mark, arrows move, Enter places the focused cell, S skips animation. Lines of three FIRE for Volts.</p>
+
+@code {
+    private readonly ElementReference[] _cells = new ElementReference[Circuit.CellCount];
+
+    [Parameter, EditorRequired] public Round Round { get; set; } = default!;
+
+    [Parameter] public bool Interactive { get; set; }
+
+    [Parameter] public int? PreviewCell { get; set; }
+
+    [Parameter] public IReadOnlySet<int> Flash { get; set; } = new HashSet<int>();
+
+    [Parameter] public EventCallback<int> OnPlace { get; set; }
+
+    [Parameter] public EventCallback<int?> OnPreview { get; set; }
+
+    public ValueTask FocusCellAsync(int index) => _cells[Math.Clamp(index, 0, Circuit.CellCount - 1)].FocusAsync();
+
+    public ValueTask FocusFirstLegalAsync()
+    {
+        var legal = Round.LegalCells();
+        return FocusCellAsync(legal.Count > 0 ? legal[0] : 4);
+    }
+
+    private async Task Play(int index)
+    {
+        if (Interactive && Round.Circuit[index].Playable) await OnPlace.InvokeAsync(index);
+    }
+
+    private Task Preview(int? index, bool playable) => OnPreview.InvokeAsync(playable ? index : null);
+
+    private async Task OnKey(int index, KeyboardEventArgs e)
+    {
+        if (BoardNavigator.IsArrow(e.Key)) await FocusCellAsync(BoardNavigator.Move(index, e.Key));
+    }
+
+    private static (double, double, double, double) BeamCoordinates(int lane)
+    {
+        // Same 316-unit box as the classic board: cell centres at 50, 158, 266.
+        static (double X, double Y) Centre(int i) => (50 + 108 * (i % Circuit.Size), 50 + 108 * (i / Circuit.Size));
+        var line = Circuit.Lines[lane];
+        var a = Centre(line[0]);
+        var b = Centre(line[^1]);
+        var len = Math.Sqrt((b.X - a.X) * (b.X - a.X) + (b.Y - a.Y) * (b.Y - a.Y));
+        var ux = (b.X - a.X) / len * 24;
+        var uy = (b.Y - a.Y) / len * 24;
+        return (Math.Round(a.X - ux, 1), Math.Round(a.Y - uy, 1), Math.Round(b.X + ux, 1), Math.Round(b.Y + uy, 1));
+    }
+}

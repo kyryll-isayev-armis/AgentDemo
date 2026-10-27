@@ -1,0 +1,334 @@
+@using AgentDemo.Web.Game.Run
+@implements IDisposable
+
+<main class="screen run" @onkeydown="OnKey">
+    <header class="run-top">
+        <p class="eyebrow">OVERCLOCK · Act 1 · Encounter @(Session.EncounterIndex + 1)/@Session.Encounters.Count</p>
+        <button type="button" class="btn btn-small" @onclick="OnMenu">Menu</button>
+    </header>
+
+    @switch (View)
+    {
+        case RunPhase.Encounter:
+            <ScoreHud Round="Session.Round" Score="_score" GainCenti="_gain" Cred="Session.Cred" Preview="CurrentPreview" />
+
+            @if (ShowTutorial)
+            {
+                <section class="tutorial" aria-labelledby="tut-title">
+                    <h2 id="tut-title">How to OVERCLOCK</h2>
+                    <ol>
+                        <li>Place marks. Three in a line FIRES: it scores Volts and clears the line.</li>
+                        <li>Reach the Quota before you run out of Cycles. ORBIT jams one cell each cycle (✕ JAM).</li>
+                        <li>Fired cells go ▲ HOT: marks there pay double Volts and add Gain. Two lines at once is a CROSS: Gain doubles.</li>
+                        <li>Between encounters, spend Cred on up to 4 modifiers or lane Tunes.</li>
+                    </ol>
+                    <button type="button" class="btn btn-small" @onclick="DismissTutorial">Got it</button>
+                </section>
+            }
+
+            <RunBoard @ref="_board" Round="Session.Round" Interactive="Session.Round.Outcome == RoundOutcome.InProgress"
+                      PreviewCell="_preview" Flash="_flash" OnPlace="PlaceAsync" OnPreview="PreviewAsync" />
+
+            <div class="run-feed" aria-hidden="true">
+                <div class="feed-head">
+                    <span class="eyebrow">Event log</span>
+                    @if (_playing)
+                    {
+                        <button type="button" class="btn btn-small" @onclick="SkipAsync">Skip [S]</button>
+                    }
+                </div>
+                @if (_popup is not null)
+                {
+                    <span class="popup" @key="_popId">@_popup</span>
+                }
+                <ul>
+                    @foreach (var line in _feed)
+                    {
+                        <li>@line</li>
+                    }
+                </ul>
+            </div>
+
+            <ul class="mod-strip" aria-label="Equipped modifiers">
+                @for (var s = 0; s < RunSession.MaxSlots; s++)
+                {
+                    <li>
+                        @if (s < Session.Mods.Count)
+                        {
+                            <ModifierCard Mod="Session.Mods[s]" />
+                        }
+                        else
+                        {
+                            <p class="slot-empty">Empty slot</p>
+                        }
+                    </li>
+                }
+            </ul>
+            break;
+        case RunPhase.Shop:
+            <ShopScreen @ref="_shop" Session="Session" OnBuy="i => ApplyAsync(RunAction.Buy(i))" OnSell="i => ApplyAsync(RunAction.Sell(i))"
+                        OnReroll="() => ApplyAsync(RunAction.Reroll())" OnLeave="() => ApplyAsync(RunAction.Leave())" />
+            break;
+        default:
+            <RunSummary @ref="_summary" Session="Session" OnNewRun="OnNewRun" OnMenu="OnMenu" />
+            break;
+    }
+
+    <div class="sr-only" role="status" aria-live="polite" aria-atomic="true">@_announce</div>
+</main>
+
+@code {
+    private const int BeatMs = 260;
+
+    private readonly Queue<GameEvent> _pending = new();
+    private readonly List<string> _feed = [];
+    private readonly HashSet<int> _flash = [];
+    private CancellationTokenSource? _cts;
+    private RunSession? _bound;
+    private RunBoard? _board;
+    private ShopScreen? _shop;
+    private RunSummary? _summary;
+    private int _score;
+    private int _gain = 100;
+    private int? _preview;
+    private string? _popup;
+    private int _popId;
+    private bool _playing;
+    private bool _tutorialDone;
+    private bool _focusPending;
+    private string _announce = "";
+
+    [Parameter, EditorRequired] public RunSession Session { get; set; } = default!;
+
+    [Parameter] public bool Reduced { get; set; }
+
+    [Parameter] public EventCallback<RunSave?> OnSave { get; set; }
+
+    [Parameter] public EventCallback OnMenu { get; set; }
+
+    [Parameter] public EventCallback OnNewRun { get; set; }
+
+    private RunPhase View => _playing ? RunPhase.Encounter : Session.Phase;
+
+    private bool ShowTutorial => !_tutorialDone && Session.EncounterIndex == 0 && Session.Actions.Count == 0;
+
+    private Preview? CurrentPreview => _preview is { } c && !_playing ? Session.Round.PreviewPlace(c) : null;
+
+    protected override void OnParametersSet()
+    {
+        if (ReferenceEquals(_bound, Session)) return;
+        _bound = Session;
+        CancelPlayback();
+        _pending.Clear();
+        _playing = false;
+        _feed.Clear();
+        _preview = null;
+        _tutorialDone = Session.Actions.Count > 0;
+        SyncDisplay();
+        _focusPending = true;
+        _announce = Session.Actions.Count > 0 ? "Run resumed." : "OVERCLOCK run started. Encounter 1.";
+    }
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (!_focusPending) return;
+        _focusPending = false;
+        try
+        {
+            switch (View)
+            {
+                case RunPhase.Encounter when _board is not null: await _board.FocusFirstLegalAsync(); break;
+                case RunPhase.Shop when _shop is not null: await _shop.FocusAsync(); break;
+                case RunPhase.Cleared or RunPhase.Failed when _summary is not null: await _summary.FocusAsync(); break;
+            }
+        }
+        catch (Exception)
+        {
+        }
+    }
+
+    private void SyncDisplay()
+    {
+        _score = Session.Round.Score;
+        _gain = 100;
+        for (var i = Session.Log.Count - 1; i >= 0; i--)
+        {
+            if (Session.Log[i].Kind == GameEventKind.Scored) { _gain = Session.Log[i].B; break; }
+            if (Session.Log[i].Kind == GameEventKind.EncounterStarted) break;
+        }
+        _flash.Clear();
+        _popup = null;
+    }
+
+    private void DismissTutorial()
+    {
+        _tutorialDone = true;
+        _focusPending = true;
+    }
+
+    private Task PreviewAsync(int? cell)
+    {
+        _preview = cell;
+        return Task.CompletedTask;
+    }
+
+    private async Task OnKey(KeyboardEventArgs e)
+    {
+        if (e.CtrlKey || e.AltKey || e.MetaKey) return;
+        var digit = e.Key.Length == 1 && e.Key[0] is >= '1' and <= '9' ? e.Key[0] - '1' : -1;
+        switch (View)
+        {
+            case RunPhase.Encounter:
+                if (e.Key is "s" or "S" or "Escape") await SkipAsync();
+                else if (digit >= 0) await PlaceAsync(digit);
+                break;
+            case RunPhase.Shop:
+                if (digit is >= 0 and < ShopGenerator.OfferCount) await ApplyAsync(RunAction.Buy(digit));
+                else if (e.Key is "r" or "R") await ApplyAsync(RunAction.Reroll());
+                else if (e.Key is "l" or "L") await ApplyAsync(RunAction.Leave());
+                break;
+        }
+    }
+
+    private async Task PlaceAsync(int cell)
+    {
+        if (_playing) FinishPlayback();
+        if (Session.Phase != RunPhase.Encounter || Session.Round.Outcome != RoundOutcome.InProgress) return;
+        await ApplyAsync(RunAction.Place(cell));
+    }
+
+    private Task SkipAsync()
+    {
+        if (_playing) FinishPlayback();
+        return Task.CompletedTask;
+    }
+
+    private async Task ApplyAsync(RunAction action)
+    {
+        if (_playing) FinishPlayback();
+        var before = Session.Log.Count;
+        var result = Session.Apply(action);
+        if (!result.Ok)
+        {
+            _announce = result.Error ?? "Action not allowed.";
+            return;
+        }
+
+        var events = Session.Log.Skip(before).ToList();
+        _preview = null;
+        await OnSave.InvokeAsync(Session.Phase is RunPhase.Encounter or RunPhase.Shop ? Session.Save() : null);
+
+        if (action.Kind == RunActionKind.Place)
+        {
+            _announce = RunText.Summary(events, Session.Round) + Session.Phase switch
+            {
+                RunPhase.Shop => " Shop open.",
+                RunPhase.Cleared => " Act cleared.",
+                RunPhase.Failed => " Run failed.",
+                _ => "",
+            };
+            foreach (var e in events.Where(RunText.IsVisualBeat)) _pending.Enqueue(e);
+            if (Reduced)
+            {
+                DrainPending();
+                AfterPlayback();
+            }
+            else
+            {
+                _ = PlayAsync();
+            }
+            return;
+        }
+
+        _announce = string.Join(". ", events.Where(RunText.IsVisualBeat).Select(RunText.Describe));
+        if (Session.Phase == RunPhase.Shop) _focusPending = true;
+        if (action.Kind == RunActionKind.Leave)
+        {
+            _feed.Clear();
+            SyncDisplay();
+            _announce = $"Encounter {Session.EncounterIndex + 1}: {Session.Round.Encounter.Name}. Quota {Session.Round.Quota}, {Session.Round.Cycles} cycles.";
+            _focusPending = true;
+        }
+    }
+
+    private async Task PlayAsync()
+    {
+        CancelPlayback();
+        var cts = new CancellationTokenSource();
+        _cts = cts;
+        _playing = true;
+        StateHasChanged();
+        try
+        {
+            while (_pending.Count > 0)
+            {
+                Step(_pending.Dequeue());
+                StateHasChanged();
+                await Task.Delay(BeatMs, cts.Token);
+            }
+        }
+        catch (OperationCanceledException)
+        {
+            return;
+        }
+
+        _cts = null;
+        cts.Dispose();
+        AfterPlayback();
+        StateHasChanged();
+    }
+
+    private void FinishPlayback()
+    {
+        CancelPlayback();
+        DrainPending();
+        AfterPlayback();
+    }
+
+    private void CancelPlayback()
+    {
+        var cts = _cts;
+        _cts = null;
+        if (cts is null) return;
+        cts.Cancel();
+        cts.Dispose();
+    }
+
+    private void DrainPending()
+    {
+        while (_pending.Count > 0) Step(_pending.Dequeue());
+    }
+
+    private void AfterPlayback()
+    {
+        _playing = false;
+        _flash.Clear();
+        _score = Session.Round.Score;
+        if (Session.Phase != RunPhase.Encounter) _focusPending = true;
+    }
+
+    private void Step(GameEvent e)
+    {
+        switch (e.Kind)
+        {
+            case GameEventKind.Placed:
+                _flash.Clear();
+                _popup = null;
+                break;
+            case GameEventKind.LineFired:
+                _flash.Add(e.A);
+                break;
+            case GameEventKind.Scored:
+                _score += e.C;
+                _gain = e.B;
+                _popup = $"+{e.C}";
+                _popId++;
+                break;
+        }
+
+        _feed.Add(RunText.Describe(e));
+        if (_feed.Count > 8) _feed.RemoveAt(0);
+    }
+
+    public void Dispose() => CancelPlayback();
+}

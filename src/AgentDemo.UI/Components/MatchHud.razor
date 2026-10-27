@@ -1,0 +1,81 @@
+@using AgentDemo.Web.Game
+
+<header class="hud">
+    <div class="hud-top">
+        <h1 class="mini-logo">GRID//ZERO</h1>
+        <span class="eyebrow">Round @Session.Match.RoundNumber · Best of @Session.Settings.BestOf · @Names.Rules(Session.Settings.Rules)</span>
+        <div class="hud-actions">
+            <button type="button" class="btn" disabled="@(!CanHint)" aria-keyshortcuts="H" @onclick="OnHint">Hint</button>
+            <button type="button" class="btn" disabled="@(!CanUndo)" aria-keyshortcuts="U" @onclick="OnUndo">Undo</button>
+            <button type="button" class="btn btn-mute" aria-pressed="@(Muted ? "true" : "false")" @onclick="OnToggleMute">Mute</button>
+            <button type="button" class="btn" @onclick="OnMenu">Menu</button>
+        </div>
+    </div>
+    @if (Session.Match.Assisted)
+    {
+        <p class="assist-badge">ASSISTED · not counted in stats or achievements</p>
+    }
+
+    <div class="hud-score">
+        @Side(Player.X)
+        <div class="draws"><span>DRAWS</span><strong>@Session.Match.Draws</strong></div>
+        @Side(Player.O)
+    </div>
+
+    <p class="hud-turn">
+        @if (Session.Match.IsMatchOver)
+        {
+            <span>Match over</span>
+        }
+        else if (Session.Game.IsOver)
+        {
+            <span>Round over</span>
+        }
+        else if (Thinking)
+        {
+            <span class="thinking">AI THINKING<span class="thinking-dots" aria-hidden="true"><span>.</span><span>.</span><span>.</span></span></span>
+        }
+        else
+        {
+            <span>▶ @Names.Side(Session.Game.CurrentPlayer)@Names.Tag(Session, Session.Game.CurrentPlayer) to move</span>
+        }
+    </p>
+</header>
+
+@code {
+    [Parameter, EditorRequired] public MatchSession Session { get; set; } = default!;
+
+    [Parameter] public bool Thinking { get; set; }
+
+    [Parameter] public bool Muted { get; set; }
+
+    [Parameter] public bool CanUndo { get; set; }
+
+    [Parameter] public bool CanHint { get; set; }
+
+    [Parameter] public EventCallback OnUndo { get; set; }
+
+    [Parameter] public EventCallback OnHint { get; set; }
+
+    [Parameter] public EventCallback OnToggleMute { get; set; }
+
+    [Parameter] public EventCallback OnMenu { get; set; }
+
+    private RenderFragment Side(Player p) => __builder =>
+    {
+        var score = p == Player.X ? Session.Match.ScoreX : Session.Match.ScoreO;
+        var active = !Session.Game.IsOver && Session.Game.CurrentPlayer == p;
+        <div class="side @(p == Player.X ? "x-side" : "o-side") @(active ? "active" : "")">
+            <span class="side-name">@Names.Side(p)@Names.Tag(Session, p)</span>
+            <span class="side-score">
+                <span class="side-num">@score<span class="sr-only"> wins, @Session.Settings.WinsNeeded needed</span></span>
+                <span class="pips" aria-hidden="true">
+                    @for (var i = 0; i < Session.Settings.WinsNeeded; i++)
+                    {
+                        <span class="pip @(i < score ? "on" : "")"></span>
+                    }
+                </span>
+            </span>
+        </div>
+    };
+}

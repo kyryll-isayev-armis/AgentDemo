@@ -1,0 +1,94 @@
+@using AgentDemo.Web.Game
+@using AgentDemo.Web.Services
+
+<div class="overlay-backdrop" @onclick="OnClose"></div>
+<div class="dialog">
+    <section class="panel" role="dialog" aria-modal="true" aria-labelledby="history-title">
+        <h2 id="history-title" tabindex="-1" @ref="_heading">History</h2>
+
+        @if (_viewing is not null)
+        {
+            <ReplayViewer Record="_viewing" OnBack="CloseReplay" />
+        }
+        else
+        {
+        @if (!string.IsNullOrEmpty(Handle))
+        {
+            <p class="hint">Player: @Handle</p>
+        }
+
+        @if (Profile is null || Profile.History.Count == 0)
+        {
+            <p class="hint">No matches yet. Finish one and it shows up here.</p>
+        }
+        else
+        {
+            <div class="stats">
+                @foreach (var d in Enum.GetValues<Difficulty>())
+                {
+                    var line = Profile.Stats[d];
+                    <span>vs @d: @line.Wins W · @line.Losses L · @line.Draws D</span>
+                }
+            </div>
+            <ul class="history-list">
+                @foreach (var r in Profile.History)
+                {
+                    var record = r;
+                    <li>
+                        <strong>@Winner(r)</strong> · VECTOR @r.ScoreX – @r.ScoreO ORBIT · @r.Draws draws
+                        @if (r.Assisted)
+                        {
+                            <span class="assist-badge">ASSISTED</span>
+                        }
+                        <span class="meta">@r.CompletedAt.UtcDateTime.ToString("yyyy-MM-dd HH:mm") UTC · @Versus(r.Settings) · @Names.Rules(r.Settings.Rules) · Best of @r.Settings.BestOf</span>
+                        @if (r.Rounds.Count > 0)
+                        {
+                            <button type="button" class="btn btn-small" @onclick="() => OpenReplay(record)">Replay (@r.Rounds.Count @(r.Rounds.Count == 1 ? "round" : "rounds"))</button>
+                        }
+                    </li>
+                }
+            </ul>
+        }
+
+        <div class="btn-row">
+            <button type="button" class="btn btn-primary" @onclick="OnClose">Close</button>
+        </div>
+        }
+    </section>
+</div>
+
+@code {
+    private ElementReference _heading;
+    private MatchRecord? _viewing;
+    private bool _refocus;
+
+    [Parameter] public ProfileData? Profile { get; set; }
+
+    [Parameter] public string Handle { get; set; } = "";
+
+    [Parameter] public EventCallback OnClose { get; set; }
+
+    public ValueTask FocusAsync() => _heading.FocusAsync();
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (_refocus)
+        {
+            _refocus = false;
+            await _heading.FocusAsync();
+        }
+    }
+
+    private void OpenReplay(MatchRecord record) => _viewing = record;
+
+    private void CloseReplay()
+    {
+        _viewing = null;
+        _refocus = true;
+    }
+
+    private static string Winner(MatchRecord r) => r.Winner == Player.None ? "No winner" : $"{Names.Side(r.Winner)} won";
+
+    private static string Versus(MatchSettings s) =>
+        s.Opponent == Opponent.Ai ? $"vs AI {s.Difficulty}, you {s.HumanSide}" : "Local 2P";
+}

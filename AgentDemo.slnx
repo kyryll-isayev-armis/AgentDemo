@@ -1,0 +1,16 @@
+<Solution>
+  <Folder Name="/src/">
+    <Project Path="src/AgentDemo.Core/AgentDemo.Core.csproj" />
+    <Project Path="src/AgentDemo.UI/AgentDemo.UI.csproj" />
+    <Project Path="src/AgentDemo.Web/AgentDemo.Web.csproj" />
+    <!-- Android-only app: needs the maui-android workload + Android SDK, so it is excluded from solution builds.
+         Build it explicitly: dotnet build src/AgentDemo.Maui -f net10.0-android -->
+    <Project Path="src/AgentDemo.Maui/AgentDemo.Maui.csproj">
+      <Build Solution="*|*" Project="false" />
+      <Deploy Solution="*|*" Project="false" />
+    </Project>
+  </Folder>
+  <Folder Name="/tests/">
+    <Project Path="tests/AgentDemo.Tests/AgentDemo.Tests.csproj" />
+  </Folder>
+</Solution>

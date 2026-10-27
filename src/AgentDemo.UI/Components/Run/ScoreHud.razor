@@ -1,0 +1,43 @@
+@using AgentDemo.Web.Game.Run
+
+<section class="score-hud" aria-label="Encounter status">
+    <p class="hud-title"><span class="eyebrow">@Round.Encounter.Name</span>@if (Round.Encounter.IsBoss) { <span class="boss-tag">BOSS: row 2 locked</span> }</p>
+    <dl class="hud-stats">
+        <div class="stat"><dt>Volts</dt><dd class="stat-volts">@Score</dd></div>
+        <div class="stat"><dt>Quota</dt><dd>@Round.Quota</dd></div>
+        <div class="stat"><dt>Gain</dt><dd class="stat-gain">@RunText.Gain(GainCenti)</dd></div>
+        <div class="stat"><dt>Cycle</dt><dd>@Math.Min(Round.Cycle, Round.Cycles)/@Round.Cycles</dd></div>
+        <div class="stat"><dt>Cred</dt><dd class="stat-cred">@Cred</dd></div>
+    </dl>
+    <div class="meter" role="progressbar" aria-label="Quota progress" aria-valuemin="0" aria-valuemax="@Round.Quota" aria-valuenow="@Math.Min(Score, Round.Quota)">
+        <div class="meter-fill" style="width: @Percent%"></div>
+    </div>
+    <p class="preview" aria-hidden="@(Preview is null ? "true" : "false")">
+        @if (Preview is { Lines: > 0 } p)
+        {
+            <span>Would fire @p.Lines @(p.Lines == 1 ? "line" : "lines")@(p.Lines > 1 ? " (CROSS)" : "") for ~@p.Score Volts</span>
+        }
+        else if (Preview is not null)
+        {
+            <span>No fire here</span>
+        }
+        else
+        {
+            <span>Hover or focus a cell to preview a fire</span>
+        }
+    </p>
+</section>
+
+@code {
+    [Parameter, EditorRequired] public Round Round { get; set; } = default!;
+
+    [Parameter] public int Score { get; set; }
+
+    [Parameter] public int GainCenti { get; set; } = 100;
+
+    [Parameter] public int Cred { get; set; }
+
+    [Parameter] public Preview? Preview { get; set; }
+
+    private int Percent => Round.Quota <= 0 ? 100 : Math.Clamp(Score * 100 / Round.Quota, 0, 100);
+}

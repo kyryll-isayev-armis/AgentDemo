@@ -1,0 +1,20 @@
+@using AgentDemo.Web.Game
+
+@if (Side == Player.X)
+{
+    <svg class="mark mark-x" viewBox="0 0 100 100" aria-hidden="true" focusable="false">
+        <line x1="22" y1="22" x2="78" y2="78" pathLength="1" />
+        <line x1="78" y1="22" x2="22" y2="78" pathLength="1" />
+    </svg>
+}
+else if (Side == Player.O)
+{
+    <svg class="mark mark-o" viewBox="0 0 100 100" aria-hidden="true" focusable="false">
+        <circle class="ring" cx="50" cy="50" r="24" pathLength="1" />
+        <g class="orbit"><circle class="dot" cx="50" cy="12" r="6" /></g>
+    </svg>
+}
+
+@code {
+    [Parameter] public Player Side { get; set; }
+}

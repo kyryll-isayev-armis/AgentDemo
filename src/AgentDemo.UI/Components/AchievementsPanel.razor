@@ -1,0 +1,50 @@
+@using AgentDemo.Web.Game
+@using AgentDemo.Web.Services
+
+<div class="overlay-backdrop" @onclick="OnClose"></div>
+<div class="dialog">
+    <section class="panel" role="dialog" aria-modal="true" aria-labelledby="ach-title">
+        <h2 id="ach-title" tabindex="-1" @ref="_heading">Achievements</h2>
+
+        <p class="hint">
+            Daily challenge streak: @Streak · Challenges completed: @(Profile?.Challenge.TotalCompleted ?? 0)
+        </p>
+
+        <ul class="history-list ach-list">
+            @foreach (var a in Enum.GetValues<Achievement>())
+            {
+                var unlockedAt = Profile is not null && Profile.Achievements.TryGetValue(a, out var at) ? at : (DateTimeOffset?)null;
+                <li class="@(unlockedAt is null ? "locked" : "unlocked")">
+                    <strong>@(unlockedAt is null ? "🔒" : "✓") @Achievements.Title(a)</strong>
+                    <span class="meta">
+                        @Achievements.Describe(a)
+                        @if (unlockedAt is { } when)
+                        {
+                            <text> Unlocked @when.UtcDateTime.ToString("yyyy-MM-dd") UTC.</text>
+                        }
+                        else
+                        {
+                            <text> Locked.</text>
+                        }
+                    </span>
+                </li>
+            }
+        </ul>
+
+        <div class="btn-row">
+            <button type="button" class="btn btn-primary" @onclick="OnClose">Close</button>
+        </div>
+    </section>
+</div>
+
+@code {
+    private ElementReference _heading;
+
+    [Parameter] public ProfileData? Profile { get; set; }
+
+    [Parameter] public int Streak { get; set; }
+
+    [Parameter] public EventCallback OnClose { get; set; }
+
+    public ValueTask FocusAsync() => _heading.FocusAsync();
+}

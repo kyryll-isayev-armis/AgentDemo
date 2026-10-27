@@ -1,0 +1,17 @@
+@using AgentDemo.Web.Game.Run
+
+<article class="mod-card rarity-@Mod.Rarity.ToString().ToLowerInvariant()">
+    <header class="mod-head">
+        <h4 class="mod-name">@Mod.Name</h4>
+        <span class="mod-rarity">@Mod.Rarity</span>
+    </header>
+    <p class="mod-up"><span aria-hidden="true">+ </span><span class="sr-only">Upside: </span>@Mod.Upside</p>
+    <p class="mod-down"><span aria-hidden="true">- </span><span class="sr-only">Drawback: </span>@Mod.Drawback</p>
+    @ChildContent
+</article>
+
+@code {
+    [Parameter, EditorRequired] public Modifier Mod { get; set; } = default!;
+
+    [Parameter] public RenderFragment? ChildContent { get; set; }
+}

@@ -1,0 +1,692 @@
+﻿@page "/"
+@using AgentDemo.Web.Game
+@using AgentDemo.Web.Services
+@using AgentDemo.Web.Components.Run
+@using AgentDemo.Web.Game.Run
+@implements IDisposable
+@implements IAppLifecycleTarget
+@inject IProfileService Profile
+@inject ISoundService Sound
+@inject IJSRuntime JS
+@inject IServiceProvider Services
+
+<PageTitle>@PageTitleText</PageTitle>
+
+<div class="@ShellClass" data-theme="@_user.Theme" @onkeydown="OnShellKey">
+    <div class="fx" aria-hidden="true">
+        <div class="fx-haze"></div>
+        <div class="fx-stars"></div>
+        <div class="fx-floor"></div>
+        <div class="fx-scan"></div>
+        <div class="fx-vignette"></div>
+    </div>
+
+    <div class="bg-content" inert="@(_panel != Panel.None)">
+    @switch (_screen)
+    {
+        case Screen.Setup:
+            <SetupScreen @ref="_setupScreen" Settings="_setup" OnStart="StartMatchAsync" OnBack="BackToTitleAsync" />
+            break;
+        case Screen.Match when _session is not null:
+            <main class="screen">
+                <MatchHud Session="_session" Thinking="_thinking" Muted="!_user.SoundEnabled" OnToggleMute="ToggleMuteAsync" OnMenu="BackToTitleAsync"
+                          CanUndo="CanUndo" CanHint="CanHint" OnUndo="UndoAsync" OnHint="HintAsync" />
+                <Board @ref="_board" Game="_session.Game" Locked="IsLocked" HintCell="_hint" OnCellPlay="PlayCellAsync" />
+                @if (_session.Game.IsOver)
+                {
+                    <RoundPanel @ref="_round" Title="@ResultTitle" Detail="@ResultDetail"
+                                PrimaryLabel="@(_session.Match.IsMatchOver ? "Rematch" : "Next round")"
+                                SecondaryLabel="@(_session.Match.IsMatchOver ? "Menu" : null)"
+                                OnPrimary="NextAsync" OnSecondary="BackToTitleAsync" />
+                }
+            </main>
+            break;
+        case Screen.Run when _run is not null:
+            <RunScreen Session="_run" Reduced="_user.ReducedEffects" OnSave="SaveRunAsync" OnMenu="BackToTitleAsync" OnNewRun="StartRunAsync" />
+            break;
+        default:
+            <TitleScreen @ref="_title" OnRun="StartRunAsync" OnResumeRun="ResumeRunAsync" HasRun="_profile?.ActiveRun is not null" HasMatch="_profile?.ActiveMatch is not null" OnResumeMatch="ResumeMatchAsync" Notice="@_notice" OnPlay="OpenSetup" OnSettings="() => OpenPanel(Panel.Settings)" OnHistory="() => OpenPanel(Panel.History)"
+                         OnAchievements="() => OpenPanel(Panel.Achievements)" OnChallenge="StartChallengeAsync"
+                         Challenge="_challenge" Streak="_progress.CurrentStreak(_today)" DoneToday="_progress.IsDoneOn(_today)"
+                         Unlocked="_profile?.Achievements.Count ?? 0" />
+            break;
+    }
+    </div>
+
+    @if (_panel == Panel.Settings)
+    {
+        <SettingsPanel @ref="_settingsPanel" Settings="_user" OnChanged="UpdateUserAsync" OnClearHistory="ClearHistoryAsync" OnClose="ClosePanel" />
+    }
+    else if (_panel == Panel.History)
+    {
+        <HistoryPanel @ref="_historyPanel" Profile="_profile" Handle="@_user.Handle" OnClose="ClosePanel" />
+    }
+    else if (_panel == Panel.Achievements)
+    {
+        <AchievementsPanel @ref="_achievementsPanel" Profile="_profile" Streak="_progress.CurrentStreak(_today)" OnClose="ClosePanel" />
+    }
+
+    <div class="sr-only" role="status" aria-live="polite" aria-atomic="true">@_announce</div>
+</div>
+
+@code {
+    private enum Screen { Title, Setup, Match, Run }
+
+    private enum Panel { None, Settings, History, Achievements }
+
+    private enum Focus { None, TitlePlay, TitleSettings, TitleHistory, TitleAchievements, Setup, FirstCell, Result, Panel }
+
+    private readonly Random _rng = new();
+    private Screen _screen = Screen.Title;
+    private Panel _panel = Panel.None;
+    private Focus _focus = Focus.None;
+    private UserSettings _user = new();
+    private ProfileData? _profile;
+    private MatchSettings _setup = new();
+    private MatchSession? _session;
+    private RunSession? _run;
+    private CancellationTokenSource? _cts;
+    private bool _thinking;
+    private bool _recorded;
+    private int? _hint;
+    private string _unlockedNote = "";
+    private string _announce = "";
+    private string? _notice;
+    private bool _fxApplied;
+    private IJSObjectReference? _fxModule;
+
+    private TitleScreen? _title;
+    private SetupScreen? _setupScreen;
+    private Board? _board;
+    private RoundPanel? _round;
+    private SettingsPanel? _settingsPanel;
+    private HistoryPanel? _historyPanel;
+    private AchievementsPanel? _achievementsPanel;
+
+    private DateOnly _today = DateOnly.FromDateTime(DateTime.UtcNow);
+    private DailyChallenge _challenge = Challenges.ForDate(DateOnly.FromDateTime(DateTime.UtcNow));
+    private ChallengeProgress _progress => _profile?.Challenge ?? new ChallengeProgress();
+
+    private bool CanUndo => !_thinking && _session is { CanUndo: true };
+
+    private bool CanHint => !_thinking && _session is { CanHint: true };
+
+    private string ShellClass => _user.ReducedEffects ? "shell fx-off" : "shell";
+
+    private string PageTitleText => _screen switch
+    {
+        Screen.Setup => "Setup - GRID//ZERO",
+        Screen.Match => "Match - GRID//ZERO",
+        Screen.Run => "OVERCLOCK - GRID//ZERO",
+        _ => "GRID//ZERO"
+    };
+
+    private bool IsLocked => _thinking || (_session?.IsAiTurn ?? false);
+
+    private bool CanAdvance => _screen == Screen.Match && _panel == Panel.None && _session is { Game.IsOver: true };
+
+    private string ResultTitle
+    {
+        get
+        {
+            var g = _session!.Game;
+            if (g.Winner == Player.None) return "Static: draw";
+            var who = Names.Side(g.Winner) + Names.Tag(_session, g.Winner);
+            return _session.Match.IsMatchOver ? $"{who} wins the match" : $"{who} wins the round";
+        }
+    }
+
+    private string ResultDetail
+    {
+        get
+        {
+            var m = _session!.Match;
+            var text = $"VECTOR {m.ScoreX} · ORBIT {m.ScoreO} · Draws {m.Draws}";
+            if (m.Assisted) text += " · Assisted: not counted in stats";
+            if (!string.IsNullOrEmpty(_unlockedNote)) text += " · " + _unlockedNote;
+            return text;
+        }
+    }
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (firstRender)
+        {
+            await LoadProfileAsync();
+        }
+
+        await ApplyReducedEffectsAsync();
+        await ApplyFocusAsync();
+    }
+
+    private async Task ApplyReducedEffectsAsync()
+    {
+        if (_fxApplied == _user.ReducedEffects)
+        {
+            return;
+        }
+
+        _fxApplied = _user.ReducedEffects;
+        try
+        {
+            _fxModule ??= await JS.InvokeAsync<IJSObjectReference>("import", "./_content/AgentDemo.UI/storage.js");
+            await _fxModule.InvokeVoidAsync("setReducedEffects", _fxApplied);
+        }
+        catch (Exception)
+        {
+        }
+    }
+
+    private async Task LoadProfileAsync()
+    {
+        try
+        {
+            var data = await Profile.LoadAsync();
+            _profile = data;
+            _user = data.Settings.Normalized();
+            _setup = _user.LastMatch;
+            Sound.Enabled = _user.SoundEnabled;
+            if (data.RunRetired) _notice = "Run from an older version was retired.";
+            StateHasChanged();
+        }
+        catch (Exception)
+        {
+        }
+    }
+
+    private async Task ApplyFocusAsync()
+    {
+        var target = _focus;
+        _focus = Focus.None;
+        try
+        {
+            switch (target)
+            {
+                case Focus.TitlePlay when _title is not null: await _title.FocusAsync("play"); break;
+                case Focus.TitleSettings when _title is not null: await _title.FocusAsync("settings"); break;
+                case Focus.TitleHistory when _title is not null: await _title.FocusAsync("history"); break;
+                case Focus.TitleAchievements when _title is not null: await _title.FocusAsync("achievements"); break;
+                case Focus.Setup when _setupScreen is not null: await _setupScreen.FocusAsync(); break;
+                case Focus.FirstCell when _board is not null: await _board.FocusFirstLegalAsync(); break;
+                case Focus.Result when _round is not null: await _round.FocusAsync(); break;
+                case Focus.Panel when _panel == Panel.Settings && _settingsPanel is not null: await _settingsPanel.FocusAsync(); break;
+                case Focus.Panel when _panel == Panel.History && _historyPanel is not null: await _historyPanel.FocusAsync(); break;
+                case Focus.Panel when _panel == Panel.Achievements && _achievementsPanel is not null: await _achievementsPanel.FocusAsync(); break;
+            }
+        }
+        catch (Exception)
+        {
+        }
+    }
+
+    private async Task OnShellKey(KeyboardEventArgs e)
+    {
+        if (e.CtrlKey || e.AltKey || e.MetaKey)
+        {
+            return;
+        }
+
+        if (_panel != Panel.None)
+        {
+            if (e.Key == "Escape") ClosePanel();
+            return;
+        }
+
+        if (e.Key == "Escape")
+        {
+            return;
+        }
+
+        if (e.Key is "m" or "M")
+        {
+            await ToggleMuteAsync();
+        }
+        else if (e.Key is "n" or "N")
+        {
+            if (CanAdvance) await NextAsync();
+        }
+        else if (e.Key is "u" or "U")
+        {
+            await UndoAsync();
+        }
+        else if (e.Key is "h" or "H")
+        {
+            await HintAsync();
+        }
+        else if (_screen == Screen.Match && _panel == Panel.None && BoardNavigator.CellForDigit(e.Key) is { } cell)
+        {
+            await PlayCellAsync(cell);
+        }
+    }
+
+    private void OpenSetup()
+    {
+        _screen = Screen.Setup;
+        _focus = Focus.Setup;
+        Cue(SoundCue.Click);
+    }
+
+    private void OpenPanel(Panel panel)
+    {
+        _panel = panel;
+        _focus = Focus.Panel;
+    }
+
+    private void ClosePanel()
+    {
+        _focus = _panel switch
+        {
+            Panel.History => Focus.TitleHistory,
+            Panel.Achievements => Focus.TitleAchievements,
+            _ => Focus.TitleSettings
+        };
+        _panel = Panel.None;
+    }
+
+    private void BackToTitle()
+    {
+        CancelAi();
+        _session = null;
+        _run = null;
+        _hint = null;
+        _today = DateOnly.FromDateTime(DateTime.UtcNow);
+        _challenge = Challenges.ForDate(_today);
+        _screen = Screen.Title;
+        _focus = Focus.TitlePlay;
+    }
+
+    private async Task StartRunAsync()
+    {
+        CancelAi();
+        _run = new RunSession((ulong)_rng.NextInt64());
+        _screen = Screen.Run;
+        await SaveRunAsync(_run.Save());
+    }
+
+    private Task ResumeRunAsync()
+    {
+        var resumed = RunSession.Resume(_profile?.ActiveRun);
+        if (resumed is null) return Task.CompletedTask;
+        _run = resumed;
+        _screen = Screen.Run;
+        return Task.CompletedTask;
+    }
+
+    private async Task SaveRunAsync(RunSave? save)
+    {
+        try
+        {
+            await Profile.SaveRunAsync(save);
+            _profile?.ActiveRun = save;
+        }
+        catch (Exception)
+        {
+        }
+    }
+
+    // Persists the in-progress match after every state change; a finished match clears the save.
+    private async Task PersistMatchAsync(MatchSession session)
+    {
+        try
+        {
+            var snapshot = session.Match.IsMatchOver ? null : session.Match.ToSnapshot();
+            await Profile.SaveMatchAsync(snapshot);
+            _profile?.ActiveMatch = snapshot;
+        }
+        catch (Exception)
+        {
+        }
+    }
+
+    private async Task ResumeMatchAsync()
+    {
+        var match = Match.Restore(_profile?.ActiveMatch);
+        if (match is null || match.IsMatchOver)
+        {
+            try
+            {
+                await Profile.SaveMatchAsync(null);
+                _profile?.ActiveMatch = null;
+            }
+            catch (Exception)
+            {
+            }
+            return;
+        }
+
+        CancelAi();
+        _session = new MatchSession(match, null, _rng);
+        _recorded = false;
+        _hint = null;
+        _unlockedNote = "";
+        _screen = Screen.Match;
+        _panel = Panel.None;
+        _focus = match.Game.IsOver ? Focus.Result : Focus.FirstCell;
+        _announce = $"Match resumed. Round {match.RoundNumber}. {match.Game.CurrentPlayer} to move.";
+        StateHasChanged();
+        Cue(SoundCue.Click);
+
+        if (_session.IsAiTurn) await RunAiAsync();
+    }
+
+    private Task BackToTitleAsync()
+    {
+        BackToTitle();
+        return Task.CompletedTask;
+    }
+
+    private Task StartChallengeAsync()
+    {
+        _today = DateOnly.FromDateTime(DateTime.UtcNow);
+        _challenge = Challenges.ForDate(_today);
+        return StartMatchCoreAsync(_challenge.Settings, remember: false);
+    }
+
+    private async Task StartMatchAsync(MatchSettings settings) => await StartMatchCoreAsync(settings, remember: true);
+
+    private async Task StartMatchCoreAsync(MatchSettings settings, bool remember)
+    {
+        CancelAi();
+        if (remember) _setup = settings;
+        _session = new MatchSession(settings, _rng);
+        _recorded = false;
+        _hint = null;
+        _unlockedNote = "";
+        _screen = Screen.Match;
+        _panel = Panel.None;
+        _focus = Focus.FirstCell;
+        _announce = $"Match started. Round 1. {_session.Game.CurrentPlayer} to move.";
+        StateHasChanged();
+        Cue(SoundCue.Click);
+
+        if (remember)
+        {
+            _user = _user with { LastMatch = settings };
+            await Profile.SaveSettingsAsync(_user);
+        }
+
+        await PersistMatchAsync(_session);
+        if (_session.IsAiTurn) await RunAiAsync();
+    }
+
+    private async Task UndoAsync()
+    {
+        var session = _session;
+        if (session is null || _screen != Screen.Match || _panel != Panel.None || _thinking || !session.Undo())
+        {
+            return;
+        }
+
+        _hint = null;
+        _focus = Focus.FirstCell;
+        _announce = $"Move undone. {session.Game.CurrentPlayer} to move. This match is now assisted.";
+        Cue(SoundCue.Click);
+        await PersistMatchAsync(session);
+    }
+
+    private async Task HintAsync()
+    {
+        var session = _session;
+        if (session is null || _screen != Screen.Match || _panel != Panel.None || _thinking || session.Hint() is not { } cell)
+        {
+            return;
+        }
+
+        _hint = cell;
+        _announce = $"Hint: row {cell / GameState.Size + 1}, column {cell % GameState.Size + 1}. This match is now assisted.";
+        Cue(SoundCue.Click);
+        await PersistMatchAsync(session);
+    }
+
+    private async Task PlayCellAsync(int index)
+    {
+        var session = _session;
+        if (session is null || _screen != Screen.Match || _panel != Panel.None || _thinking || !session.CanHumanPlay(index))
+        {
+            return;
+        }
+
+        var mover = session.Game.CurrentPlayer;
+        var fading = session.Game.FadingCell;
+        if (!session.PlayHuman(index))
+        {
+            return;
+        }
+
+        await AfterMoveAsync(session, mover, index, fading);
+        if (ReferenceEquals(_session, session) && session.IsAiTurn)
+        {
+            await RunAiAsync();
+        }
+    }
+
+    private async Task RunAiAsync()
+    {
+        var session = _session;
+        if (session is null || !session.IsAiTurn)
+        {
+            return;
+        }
+
+        CancelAi();
+        var cts = new CancellationTokenSource();
+        _cts = cts;
+        _thinking = true;
+        StateHasChanged();
+
+        try
+        {
+            await Task.Delay(_rng.Next(450, 701), cts.Token);
+        }
+        catch (OperationCanceledException)
+        {
+            return;
+        }
+
+        if (cts.IsCancellationRequested || !ReferenceEquals(_cts, cts) || !ReferenceEquals(_session, session))
+        {
+            return;
+        }
+
+        _cts = null;
+        cts.Dispose();
+        _thinking = false;
+
+        var mover = session.Game.CurrentPlayer;
+        var fading = session.Game.FadingCell;
+        if (session.PlayAiMove() is { } move)
+        {
+            await AfterMoveAsync(session, mover, move, fading);
+        }
+    }
+
+    private async Task AfterMoveAsync(MatchSession session, Player mover, int cell, int? faded)
+    {
+        var match = session.Match;
+        var game = match.Game;
+        _hint = null;
+        var text = $"{mover} at row {cell / GameState.Size + 1}, column {cell % GameState.Size + 1}.";
+        var cue = mover == Player.X ? SoundCue.PlaceX : SoundCue.PlaceO;
+        SoundCue? second = null;
+
+        if (game.IsOver)
+        {
+            var score = $"Score X {match.ScoreX}, O {match.ScoreO}.";
+            if (game.Winner == Player.None)
+            {
+                text += $" Draw, static. {score}";
+                cue = SoundCue.Draw;
+            }
+            else
+            {
+                text += match.IsMatchOver
+                    ? $" {game.Winner} wins the match. {score}"
+                    : $" {game.Winner} wins the round. {score}";
+                cue = session.Ai is not null && game.Winner == session.AiSide ? SoundCue.Lose : SoundCue.Win;
+            }
+            _focus = Focus.Result;
+        }
+        else
+        {
+            if (faded.HasValue)
+            {
+                text += " Oldest mark faded.";
+                second = SoundCue.Fade;
+            }
+            text += $" {game.CurrentPlayer}'s turn.";
+        }
+
+        _announce = text;
+        StateHasChanged();
+        Cue(cue, second);
+        await PersistMatchAsync(session);
+
+        if (match.IsMatchOver && !_recorded)
+        {
+            _recorded = true;
+            try
+            {
+                // The profile object is mutated in place, so snapshot before recording.
+                var known = (_profile?.Achievements.Keys ?? Enumerable.Empty<Achievement>()).ToHashSet();
+                var wasDone = _progress.IsDoneOn(_today);
+                _profile = await Profile.RecordMatchAsync(match.ToRecord(DateTimeOffset.UtcNow));
+
+                var notes = _profile.Achievements.Keys.Where(a => !known.Contains(a)).Select(Achievements.Title).ToList();
+                if (!wasDone && _progress.IsDoneOn(_today))
+                {
+                    notes.Insert(0, $"Daily challenge complete (streak {_progress.CurrentStreak(_today)})");
+                }
+                if (notes.Count > 0)
+                {
+                    _unlockedNote = "Unlocked: " + string.Join(", ", notes);
+                    _announce += " " + _unlockedNote + ".";
+                    StateHasChanged();
+                }
+            }
+            catch (Exception)
+            {
+            }
+        }
+    }
+
+    private async Task NextAsync()
+    {
+        var session = _session;
+        if (session is null || !session.Game.IsOver)
+        {
+            return;
+        }
+
+        CancelAi();
+        _hint = null;
+        _unlockedNote = "";
+        var match = session.Match;
+        if (match.IsMatchOver)
+        {
+            match.Rematch();
+            _recorded = false;
+        }
+        else
+        {
+            match.StartNextRound();
+        }
+
+        _focus = Focus.FirstCell;
+        _announce = $"Round {match.RoundNumber}. {match.Game.CurrentPlayer} to move.";
+        StateHasChanged();
+        Cue(SoundCue.Click);
+        await PersistMatchAsync(session);
+
+        if (session.IsAiTurn) await RunAiAsync();
+    }
+
+    private Task ToggleMuteAsync() => UpdateUserAsync(_user with { SoundEnabled = !_user.SoundEnabled });
+
+    private async Task UpdateUserAsync(UserSettings next)
+    {
+        var turnedOn = next.SoundEnabled && !_user.SoundEnabled;
+        _user = next.Normalized();
+        Sound.Enabled = _user.SoundEnabled;
+        StateHasChanged();
+        if (turnedOn) Cue(SoundCue.Click);
+        await Profile.SaveSettingsAsync(_user);
+    }
+
+    private async Task ClearHistoryAsync()
+    {
+        await Profile.ClearHistoryAsync();
+        _profile?.History.Clear();
+    }
+
+    private void CancelAi()
+    {
+        var cts = _cts;
+        _cts = null;
+        _thinking = false;
+        if (cts is not null)
+        {
+            cts.Cancel();
+            cts.Dispose();
+        }
+    }
+
+    // Sound never throws; fire-and-forget keeps moves from waiting on audio interop.
+    private void Cue(SoundCue cue, SoundCue? then = null) => _ = PlayCuesAsync(cue, then);
+
+    private async Task PlayCuesAsync(SoundCue cue, SoundCue? then)
+    {
+        await Sound.PlayAsync(cue);
+        if (then is { } next) await Sound.PlayAsync(next);
+    }
+
+    public void Dispose()
+    {
+        _lifecycle?.Detach(this);
+        CancelAi();
+    }
+
+    private AppLifecycle? _lifecycle;
+
+    protected override void OnInitialized()
+    {
+        _lifecycle = Services.GetService(typeof(AppLifecycle)) as AppLifecycle;
+        _lifecycle?.Attach(this);
+    }
+
+    // Hardware Back: close panel, else leave the current screen for the title (match/run progress is already saved).
+    public async Task<bool> HandleBackAsync()
+    {
+        if (_panel != Panel.None)
+        {
+            ClosePanel();
+        }
+        else if (_screen == Screen.Title)
+        {
+            return false;
+        }
+        else
+        {
+            if (_session is { } s && _screen == Screen.Match) await PersistMatchAsync(s);
+            BackToTitle();
+        }
+
+        await InvokeAsync(StateHasChanged);
+        return true;
+    }
+
+    public async Task PauseAsync()
+    {
+        CancelAi();
+        if (_session is { } s && _screen == Screen.Match) await PersistMatchAsync(s);
+        if (_run is not null && _screen == Screen.Run) await SaveRunAsync(_run.Save());
+        await InvokeAsync(StateHasChanged);
+    }
+
+    public async Task ResumeAsync()
+    {
+        if (_screen == Screen.Match && _session is { IsAiTurn: true } && !_thinking)
+        {
+            await InvokeAsync(RunAiAsync);
+        }
+    }
+}

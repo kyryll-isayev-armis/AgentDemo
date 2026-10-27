@@ -1,0 +1,97 @@
+/* Theme tokens. Contrast (WCAG) checked per theme: ink/dim text >= 8:1 on bg/panel/cell,
+   X/O marks >= 5:1 on cell, borders >= 4.8:1, on-accent text >= 10:1, focus ring >= 15:1. */
+:root,
+[data-theme="neon-noir"] {
+    --bg: #07060f;
+    --panel: #100d22;
+    --cell: #17123a;
+    --ink: #ece9ff;
+    --dim: #b3acd9;
+    --x: #19f3ff;
+    --o: #ff3df2;
+    --x-glow: rgba(25, 243, 255, .55);
+    --o-glow: rgba(255, 61, 242, .55);
+    --border: #8a7fd6;
+    --accent: #19f3ff;
+    --on-accent: #04121a;
+    --focus: #ffffff;
+    --focus-halo: #000000;
+    --grid-line: rgba(25, 243, 255, .35);
+    --haze-a: rgba(25, 243, 255, .16);
+    --haze-b: rgba(255, 61, 242, .16);
+    --star: #ece9ff;
+    --fx-opacity: 1;
+}
+
+[data-theme="solar-flare"] {
+    --bg: #0d0710;
+    --panel: #1a0f22;
+    --cell: #241530;
+    --ink: #fff3e0;
+    --dim: #d6c0e0;
+    --x: #ffb000;
+    --o: #b388ff;
+    --x-glow: rgba(255, 176, 0, .55);
+    --o-glow: rgba(179, 136, 255, .55);
+    --border: #9a7ac0;
+    --accent: #ffb000;
+    --on-accent: #1a0f00;
+    --grid-line: rgba(255, 176, 0, .35);
+    --haze-a: rgba(255, 140, 0, .16);
+    --haze-b: rgba(150, 90, 255, .16);
+    --star: #fff3e0;
+}
+
+[data-theme="toxic"] {
+    --bg: #060b05;
+    --panel: #0f1a0c;
+    --cell: #162612;
+    --ink: #eaffd8;
+    --dim: #b5d49a;
+    --x: #b6ff00;
+    --o: #ff4fa3;
+    --x-glow: rgba(182, 255, 0, .5);
+    --o-glow: rgba(255, 79, 163, .55);
+    --border: #6fa05a;
+    --accent: #b6ff00;
+    --on-accent: #0b1400;
+    --grid-line: rgba(182, 255, 0, .32);
+    --haze-a: rgba(182, 255, 0, .12);
+    --haze-b: rgba(255, 79, 163, .14);
+    --star: #eaffd8;
+}
+
+/* Derived tokens are re-resolved on every themed element so they follow that theme's colours. */
+:root,
+[data-theme] {
+    --glow-x: 0 0 .5rem var(--x-glow), 0 0 1.6rem var(--x-glow);
+    --glow-o: 0 0 .5rem var(--o-glow), 0 0 1.6rem var(--o-glow);
+    --glow-box: 0 0 1.5rem var(--haze-a), 0 0 1.5rem var(--haze-b);
+    --mark-filter-x: drop-shadow(0 0 .35rem var(--x-glow));
+    --mark-filter-o: drop-shadow(0 0 .35rem var(--o-glow));
+}
+
+[data-theme="high-contrast"] {
+    --bg: #000000;
+    --panel: #000000;
+    --cell: #000000;
+    --ink: #ffffff;
+    --dim: #e6e6e6;
+    --x: #ffff00;
+    --o: #ffffff;
+    --x-glow: transparent;
+    --o-glow: transparent;
+    --border: #ffffff;
+    --accent: #ffff00;
+    --on-accent: #000000;
+    --grid-line: transparent;
+    --haze-a: transparent;
+    --haze-b: transparent;
+    --star: transparent;
+    --glow-x: none;
+    --glow-o: none;
+    --glow-box: none;
+    --mark-filter-x: none;
+    --mark-filter-o: none;
+    --fx-opacity: 0;
+}

@@ -1,0 +1,98 @@
+@using AgentDemo.Web.Game.Run
+
+<section class="shop" aria-labelledby="shop-title">
+    <h2 id="shop-title" class="shop-title">Black market</h2>
+    <p class="shop-cred">Cred: <strong>@Session.Cred</strong> · Next: @NextName</p>
+    <p class="hotkeys">Keys 1-3 buy an offer, R reroll, L leave.</p>
+
+    <ul class="offers" aria-label="Offers">
+        @for (var i = 0; i < Session.Offers.Count; i++)
+        {
+            var index = i;
+            var offer = Session.Offers[index];
+            <li class="offer">
+                @if (offer is null)
+                {
+                    <p class="offer-sold">Sold</p>
+                }
+                else if (offer.Kind == ShopOfferKind.Modifier)
+                {
+                    <ModifierCard Mod="ModifierCatalog.Get(offer.Modifier)">
+                        <button type="button" class="btn btn-small" disabled="@(!CanBuy(offer))" @onclick="() => OnBuy.InvokeAsync(index)">
+                            Buy [@(index + 1)] · @offer.Cost Cred
+                        </button>
+                        @if (Session.Mods.Count >= RunSession.MaxSlots)
+                        {
+                            <span class="hint">Slots full: sell one first.</span>
+                        }
+                    </ModifierCard>
+                }
+                else
+                {
+                    <article class="mod-card tune-card">
+                        <header class="mod-head"><h4 class="mod-name">Tune: @RunText.LaneName(offer.Lane)</h4><span class="mod-rarity">Lane</span></header>
+                        <p class="mod-up"><span aria-hidden="true">+ </span>Level @Session.Lanes[offer.Lane] to @(Session.Lanes[offer.Lane] + 1): +10 Volts, +0.10 Gain on this lane.</p>
+                        <button type="button" class="btn btn-small" disabled="@(!CanBuy(offer))" @onclick="() => OnBuy.InvokeAsync(index)">
+                            Tune [@(index + 1)] · @offer.Cost Cred
+                        </button>
+                    </article>
+                }
+            </li>
+        }
+    </ul>
+
+    <h3 class="shop-sub">Your slots (@Session.Mods.Count/@RunSession.MaxSlots)</h3>
+    <ul class="slots" aria-label="Modifier slots">
+        @for (var s = 0; s < RunSession.MaxSlots; s++)
+        {
+            var slot = s;
+            <li class="slot">
+                @if (slot < Session.Mods.Count)
+                {
+                    var mod = Session.Mods[slot];
+                    <ModifierCard Mod="mod">
+                        <button type="button" class="btn btn-small" @onclick="() => OnSell.InvokeAsync(slot)">Sell · +@mod.SellValue Cred</button>
+                    </ModifierCard>
+                }
+                else
+                {
+                    <p class="slot-empty">Empty slot @(slot + 1)</p>
+                }
+            </li>
+        }
+    </ul>
+
+    <h3 class="shop-sub">Lane levels</h3>
+    <ul class="lanes" aria-label="Lane tune levels">
+        @for (var l = 0; l < Circuit.Lines.Length; l++)
+        {
+            <li>@RunText.LaneName(l): L@(Session.Lanes[l])</li>
+        }
+    </ul>
+
+    <div class="btn-row">
+        <button type="button" class="btn" disabled="@(Session.Cred < Session.RerollCost)" @onclick="OnReroll">Reroll [R] · @Session.RerollCost Cred</button>
+        <button type="button" @ref="_leave" class="btn btn-primary btn-big" @onclick="OnLeave">Leave [L]</button>
+    </div>
+</section>
+
+@code {
+    private ElementReference _leave;
+
+    [Parameter, EditorRequired] public RunSession Session { get; set; } = default!;
+
+    [Parameter] public EventCallback<int> OnBuy { get; set; }
+
+    [Parameter] public EventCallback<int> OnSell { get; set; }
+
+    [Parameter] public EventCallback OnReroll { get; set; }
+
+    [Parameter] public EventCallback OnLeave { get; set; }
+
+    private string NextName => Session.EncounterIndex + 1 < Session.Encounters.Count ? Session.Encounters[Session.EncounterIndex + 1].Name : "-";
+
+    public ValueTask FocusAsync() => _leave.FocusAsync();
+
+    private bool CanBuy(ShopOffer offer) =>
+        Session.Cred >= offer.Cost && (offer.Kind == ShopOfferKind.Tune || Session.Mods.Count < RunSession.MaxSlots);
+}

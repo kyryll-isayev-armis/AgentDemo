@@ -1,0 +1,29 @@
+<section class="panel result" aria-labelledby="result-title">
+    <h2 id="result-title">@Title</h2>
+    <p>@Detail</p>
+    <div class="btn-row">
+        <button type="button" @ref="_primary" class="btn btn-primary btn-big" @onclick="OnPrimary">@PrimaryLabel</button>
+        @if (!string.IsNullOrEmpty(SecondaryLabel))
+        {
+            <button type="button" class="btn" @onclick="OnSecondary">@SecondaryLabel</button>
+        }
+    </div>
+</section>
+
+@code {
+    private ElementReference _primary;
+
+    [Parameter] public string Title { get; set; } = "";
+
+    [Parameter] public string Detail { get; set; } = "";
+
+    [Parameter] public string PrimaryLabel { get; set; } = "Next round";
+
+    [Parameter] public string? SecondaryLabel { get; set; }
+
+    [Parameter] public EventCallback OnPrimary { get; set; }
+
+    [Parameter] public EventCallback OnSecondary { get; set; }
+
+    public ValueTask FocusAsync() => _primary.FocusAsync();
+}
